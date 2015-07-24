@@ -5,18 +5,170 @@ date: "24/07/2015"
 output: html_document
 ---
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+#Background
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
 
-```{r}
-summary(cars)
+
+#Data 
+
+The training data for this project are available here: 
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here: 
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment. 
+--
+
+
+#load data
+```{r load_data}
+outPutFile= "result.txt"
+urlTrain = "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+urlTest = "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+fileTrain="pml-training.csv"
+fileTest='pml-testing.csv'
+
+if (!file.exists(fileTrain)){
+    download.file(url =urlTrain, destfile = fileTrain)
+}
+if (!file.exists(fileTest)){
+    download.file(url =urlTest, destfile = fileTest)
+}
+
+DatafameTrain <- read.csv2(fileTrain,sep = ',')
+DatafameTest <- read.csv2(fileTest,sep=',')
+
+ 
+
 ```
 
-You can also embed plots, for example:
+#load library
+```{r load_library, echo=FALSE}
 
-```{r, echo=FALSE}
-plot(cars)
+library(caret)
+library(ggplot2)
+library(lattice)
+library(kernlab)
+library(randomForest)
+library(corrplot)
+set.seed(128)
+
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+# prepare data
+```{r prepare_data}
+table(DatafameTrain$classe)
+
+
+
+trainIndex <- createDataPartition(DatafameTrain$classe,p=0.8,list=FALSE)
+
+trainData = DatafameTrain[trainIndex ,]
+validationData = DatafameTrain[-trainIndex ,]
+
+epsilon <- nearZeroVar(trainData )
+trainDataNZ <- trainData[-epsilon]
+validationDataNZ <- validationData[-epsilon]
+testDataNZ <-DatafameTest[-epsilon]
+
+
+dim(trainDataNZ)
+dim(validationDataNZ)
+dim(testDataNZ)
+
+
+```
+
+# cleaning data
+```{r cleaning_data}
+# input trainDataNZ validationDataNZ testDataNZ
+# output  DFTrain<-train.Num DFTest<-DatafameTest DFValidate<-validation.Num
+#----------------------------------------------------------------------------------------
+# remove useless column 
+columnRm <- grep('^X|timestamp|window', names(trainData))
+
+DF_T0 <- trainDataNZ[,-c(columnRm)]
+DF_V0 <- validationDataNZ[,-c(columnRm)]
+
+# remove column with NA value
+DF_T1  <- DF_T0[, colSums(is.na(DF_T0)) == 0] 
+DF_V1 <- DF_V0[, colSums(is.na(DF_V0)) == 0] 
+
+# remove non numeric columb except class
+classeSave <- DF_T1$classe
+DFTrain <- DF_T1[,sapply(DF_T1, is.numeric)] 
+DFTrain$classe<-classeSave
+
+classeSave <- DF_V1$classe
+DFValidate <- DF_V1[,sapply(DF_V1, is.numeric)] 
+DFValidate$classe<-classeSave
+
+
+```
+
+#what data look like ? 
+```{r look_like}
+
+
+predictor_corr <- round(cor(DFTrain[sapply(DFTrain, is.numeric)]), 2)
+
+
+par(ps=5)
+corrplot.mixed(predictor_corr, order = "hclust", tl.col="black", diag = "n", tl.pos = "lt", 
+               lower = "circle", upper = "number", tl.cex = 1.5, mar=c(1,0,1,0))
+
+
+# higher positively correlated are (darker blue) 
+# negatively correlated are darker red
+```
+
+
+
+#Modeling
+```{r Modeling}
+
+#model 1
+#k <- 5
+#ctrl <- trainControl(method="cv", repeats=k)
+#RFModel <- train(classe~., data=DFTrain, method="rf", trControl=ctrl)
+
+#model 2
+RFModel2 <- randomForest(classe ~ ., data = DFTrain, importance = TRUE, ntrees = 10)
+
+
+#model 3
+#RFModel3 <- train(classe ~., method = "rf", data = DFTrain, 
+#                 trControl = trainControl(method = "cv", number = 4), 
+#                 ntree = 10, importance = TRUE)
+```
+
+#Validate prediction
+
+```{r validate_model}
+
+predictions <- predict(RFModel2, DFValidate)
+#predictions <- predict(RFModel_3, DFValidate)
+
+confmat <- confusionMatrix(predictions,DFValidate$classe) 
+confmat$table
+
+
+```
+
+#Conclusions
+```{r conclusion}
+DatafameTest_ok <- subset(DatafameTest, select=-c(problem_id))
+FinalPrediction <- predict(RFModel2, DatafameTest)
+
+
+write.table(FinalPrediction, outPutFile, col.names=TRUE, sep=",")
+
+FinalPrediction
+
+```
+
